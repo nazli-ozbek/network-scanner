@@ -1,0 +1,120 @@
+{
+    "schemes": [
+        "http"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "REST API to initiate a network scan and fetch discovered devices",
+        "title": "Network Scanner API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/clear": {
+            "delete": {
+                "description": "Deletes all devices from in-memory store",
+                "summary": "Clear all stored devices (DEV ONLY)",
+                "responses": {
+                    "200": {
+                        "description": "Devices cleared",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/devices": {
+            "get": {
+                "description": "Returns the list of scanned devices",
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Get all discovered devices",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.Device"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/scan": {
+            "post": {
+                "description": "Starts scanning the given CIDR range in the background",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Initiate a network scan",
+                "parameters": [
+                    {
+                        "description": "IP range to scan",
+                        "name": "input",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.ScanRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "api.ScanRequest": {
+            "type": "object",
+            "properties": {
+                "ip_range": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.Device": {
+            "type": "object",
+            "properties": {
+                "hostname": {
+                    "type": "string"
+                },
+                "ip_address": {
+                    "type": "string"
+                },
+                "is_online": {
+                    "type": "boolean"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "mac_address": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

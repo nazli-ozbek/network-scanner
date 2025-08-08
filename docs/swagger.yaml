@@ -1,0 +1,78 @@
+basePath: /
+definitions:
+  api.ScanRequest:
+    properties:
+      ip_range:
+        type: string
+    type: object
+  model.Device:
+    properties:
+      hostname:
+        type: string
+      ip_address:
+        type: string
+      is_online:
+        type: boolean
+      last_seen:
+        type: string
+      mac_address:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: REST API to initiate a network scan and fetch discovered devices
+  title: Network Scanner API
+  version: "1.0"
+paths:
+  /clear:
+    delete:
+      description: Deletes all devices from in-memory store
+      responses:
+        "200":
+          description: Devices cleared
+          schema:
+            type: string
+      summary: Clear all stored devices (DEV ONLY)
+  /devices:
+    get:
+      description: Returns the list of scanned devices
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.Device'
+            type: array
+      summary: Get all discovered devices
+  /scan:
+    post:
+      consumes:
+      - application/json
+      description: Starts scanning the given CIDR range in the background
+      parameters:
+      - description: IP range to scan
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/api.ScanRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            type: string
+      summary: Initiate a network scan
+schemes:
+- http
+swagger: "2.0"
