@@ -101,6 +101,9 @@ func resolveHostname(ip string) string {
 
 func resolveMAC(ip string) string {
 	ipAddr := net.ParseIP(ip)
+	if ipAddr.IsLoopback() {
+		return ""
+	}
 	mac, _, err := arping.Ping(ipAddr)
 	if err != nil {
 		return ""
