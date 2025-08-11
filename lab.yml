@@ -1,0 +1,16 @@
+name: scannerlab
+topology:
+  nodes:
+    backend:
+      kind: linux
+      image: scanner-backend:dev
+      ports:
+        - 8080:8080
+    device1:
+      kind: linux
+      image: alpine
+      cmd: sleep infinity
+    device2:
+      kind: linux
+      image: alpine
+      cmd: sleep infinity

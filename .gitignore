@@ -1,0 +1,5 @@
+*.key
+*.pem
+id_rsa
+scannerlab/id_rsa
+clab-scannerlab/.tls/ca/ca.key

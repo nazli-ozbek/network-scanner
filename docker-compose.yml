@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: scanner-backend
+    networks:
+      testnet:
+        ipv4_address: 192.168.100.10
+    ports:
+      - "8080:8080"
+    depends_on:
+      - device1
+      - device2
+
+  device1:
+    image: alpine
+    container_name: device1
+    command: ["sleep", "infinity"]
+    networks:
+      testnet:
+        ipv4_address: 192.168.100.11
+
+  device2:
+    image: alpine
+    container_name: device2
+    command: ["sleep", "infinity"]
+    networks:
+      testnet:
+        ipv4_address: 192.168.100.12
+
+networks:
+  testnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
