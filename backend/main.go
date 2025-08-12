@@ -15,6 +15,7 @@ import (
 	"network-scanner/repository"
 	"network-scanner/service"
 
+	"github.com/rs/cors"
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
@@ -23,12 +24,21 @@ func main() {
 	scanner := service.NewScannerService(repo)
 	handler := api.NewHandler(scanner)
 
-	http.HandleFunc("/scan", handler.StartScan)
-	http.HandleFunc("/devices", handler.GetDevices)
-	http.HandleFunc("/clear", handler.ClearDevices)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/scan", handler.StartScan)
+	mux.HandleFunc("/devices", handler.GetDevices)
+	mux.HandleFunc("/clear", handler.ClearDevices)
 
-	http.Handle("/swagger/", httpSwagger.WrapHandler)
+	mux.Handle("/swagger/", httpSwagger.WrapHandler)
+	corsOptions := cors.New(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type"},
+		AllowCredentials: true,
+	})
 
-	log.Println("Server started at http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	corsHandler := corsOptions.Handler(mux)
+
+	log.Println("Server listening on :8080")
+	log.Fatal(http.ListenAndServe(":8080", corsHandler))
 }

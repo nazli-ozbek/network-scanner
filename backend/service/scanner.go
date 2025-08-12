@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"log"
 	"net"
 	"network-scanner/model"
 	"network-scanner/repository"
+	"sync"
 	"time"
 
 	"github.com/j-keck/arping"
@@ -12,7 +14,9 @@ import (
 )
 
 type ScannerService struct {
-	repo *repository.InMemoryRepository
+	repo   *repository.InMemoryRepository
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 func NewScannerService(r *repository.InMemoryRepository) *ScannerService {
@@ -20,31 +24,48 @@ func NewScannerService(r *repository.InMemoryRepository) *ScannerService {
 }
 
 func (s *ScannerService) StartScan(ipRange string) {
+	if s.cancel != nil {
+		s.cancel()
+		s.wg.Wait()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+
+	s.wg.Add(1)
+
 	go func() {
+		defer s.wg.Done()
 		ips, err := getIPList(ipRange)
 		if err != nil {
 			log.Printf("Invalid CIDR: %s", ipRange)
 			return
 		}
 		for _, ip := range ips {
-			reachable := ping(ip)
+			select {
+			case <-ctx.Done():
+				log.Println("Scan cancelled")
+				return
+			default:
+				reachable := ping(ip)
 
-			hostname := ""
-			mac := ""
+				hostname := ""
+				mac := ""
 
-			if reachable {
-				hostname = resolveHostname(ip)
-				mac = resolveMAC(ip)
+				if reachable {
+					hostname = resolveHostname(ip)
+					mac = resolveMAC(ip)
+				}
+
+				device := model.Device{
+					IPAddress:  ip,
+					MACAddress: mac,
+					Hostname:   hostname,
+					IsOnline:   reachable,
+					LastSeen:   time.Now(),
+				}
+				s.repo.Save(device)
 			}
-
-			device := model.Device{
-				IPAddress:  ip,
-				MACAddress: mac,
-				Hostname:   hostname,
-				IsOnline:   reachable,
-				LastSeen:   time.Now(),
-			}
-			s.repo.Save(device)
 		}
 	}()
 }
@@ -112,6 +133,10 @@ func resolveMAC(ip string) string {
 }
 
 func (s *ScannerService) Clear() {
+	if s.cancel != nil {
+		s.cancel()
+		s.wg.Wait()
+	}
 	s.repo.Clear()
 }
 
