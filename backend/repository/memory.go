@@ -37,3 +37,12 @@ func (r *InMemoryRepository) Clear() {
 	defer r.mu.Unlock()
 	r.devices = make(map[string]model.Device)
 }
+
+func (r *InMemoryRepository) FindByIP(ip string) *model.Device {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if d, ok := r.devices[ip]; ok {
+		return &d
+	}
+	return nil
+}

@@ -11,4 +11,6 @@ RUN go build -o scanner
 
 EXPOSE 8080
 
+RUN apt update && apt install -y iputils-ping
+
 CMD ["./scanner"]

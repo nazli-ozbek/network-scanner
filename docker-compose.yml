@@ -2,35 +2,37 @@ services:
   backend:
     build:
       context: ./backend
-    container_name: scanner-backend
+    container_name: compose-backend
     networks:
       testnet:
-        ipv4_address: 192.168.100.10
+        ipv4_address: 192.168.200.10
     ports:
-      - "8080:8080"
+      - "8081:8080"
     depends_on:
-      - device1
-      - device2
+      - compose-device1
+      - compose-device2
 
-  device1:
+  compose-device1:
     image: alpine
-    container_name: device1
+    container_name: compose-device1
+    hostname: device1
     command: ["sleep", "infinity"]
     networks:
       testnet:
-        ipv4_address: 192.168.100.11
+        ipv4_address: 192.168.200.11
 
-  device2:
+  compose-device2:
     image: alpine
-    container_name: device2
+    container_name: compose-device2
+    hostname: device2
     command: ["sleep", "infinity"]
     networks:
       testnet:
-        ipv4_address: 192.168.100.12
+        ipv4_address: 192.168.200.12
 
 networks:
   testnet:
     driver: bridge
     ipam:
       config:
-        - subnet: 192.168.100.0/24
+        - subnet: 192.168.200.0/24

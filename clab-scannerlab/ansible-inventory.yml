@@ -8,8 +8,8 @@ all:
     linux:
       hosts:
         clab-scannerlab-backend:
-          ansible_host: 172.20.20.2
-        clab-scannerlab-device1:
           ansible_host: 172.20.20.4
-        clab-scannerlab-device2:
+        clab-scannerlab-device1:
           ansible_host: 172.20.20.3
+        clab-scannerlab-device2:
+          ansible_host: 172.20.20.2

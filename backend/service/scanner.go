@@ -51,10 +51,15 @@ func (s *ScannerService) StartScan(ipRange string) {
 
 				hostname := ""
 				mac := ""
+				existing := s.repo.FindByIP(ip)
+				lastSeen := time.Time{}
 
 				if reachable {
 					hostname = resolveHostname(ip)
 					mac = resolveMAC(ip)
+					lastSeen = time.Now()
+				} else if existing != nil {
+					lastSeen = existing.LastSeen
 				}
 
 				device := model.Device{
@@ -62,7 +67,7 @@ func (s *ScannerService) StartScan(ipRange string) {
 					MACAddress: mac,
 					Hostname:   hostname,
 					IsOnline:   reachable,
-					LastSeen:   time.Now(),
+					LastSeen:   lastSeen,
 				}
 				s.repo.Save(device)
 			}
