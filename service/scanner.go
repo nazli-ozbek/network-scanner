@@ -24,6 +24,40 @@ func NewScannerService(repo repository.DeviceRepository, logger logger.Logger) *
 	return &ScannerService{repo: repo, logger: logger}
 }
 
+func concurrentPing(ips []string, timeout time.Duration) map[string]bool {
+	p := fastping.NewPinger()
+	p.MaxRTT = timeout
+
+	results := make(map[string]bool)
+	var mu sync.Mutex
+
+	for _, ip := range ips {
+		addr, err := net.ResolveIPAddr("ip4:icmp", ip)
+		if err == nil {
+			p.AddIPAddr(addr)
+		}
+	}
+
+	p.OnRecv = func(addr *net.IPAddr, rtt time.Duration) {
+		mu.Lock()
+		results[addr.String()] = true
+		mu.Unlock()
+	}
+
+	p.OnIdle = func() {}
+
+	if err := p.Run(); err != nil {
+		return results
+	}
+
+	for _, ip := range ips {
+		if _, ok := results[ip]; !ok {
+			results[ip] = false
+		}
+	}
+	return results
+}
+
 func (s *ScannerService) StartScan(ipRange string) {
 	if s.cancel != nil {
 		s.cancel()
@@ -32,7 +66,6 @@ func (s *ScannerService) StartScan(ipRange string) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
-
 	s.wg.Add(1)
 
 	go func() {
@@ -44,14 +77,15 @@ func (s *ScannerService) StartScan(ipRange string) {
 		}
 		s.logger.Info("Scan started for range: ", ipRange)
 
+		reachability := concurrentPing(ips, 1*time.Second)
+
 		for _, ip := range ips {
 			select {
 			case <-ctx.Done():
 				s.logger.Warn("Scan cancelled")
 				return
 			default:
-				reachable := ping(ip)
-
+				reachable := reachability[ip]
 				hostname := ""
 				mac := ""
 				existing := s.repo.FindByIP(ip)
