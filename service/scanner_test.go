@@ -6,9 +6,17 @@ import (
 	"time"
 )
 
+type dummyLogger struct{}
+
+func (l *dummyLogger) Info(args ...interface{})  {}
+func (l *dummyLogger) Error(args ...interface{}) {}
+func (l *dummyLogger) Debug(args ...interface{}) {}
+func (l *dummyLogger) Warn(args ...interface{})  {}
+
 func TestStartScan_SingleIP(t *testing.T) {
 	repo := repository.NewInMemoryRepository()
-	service := NewScannerService(repo)
+	testLogger := &dummyLogger{}
+	service := NewScannerService(repo, testLogger)
 
 	service.StartScan("127.0.0.1/32")
 
@@ -24,5 +32,4 @@ func TestStartScan_SingleIP(t *testing.T) {
 	if device.IPAddress != "127.0.0.1" {
 		t.Errorf("expected IP 127.0.0.1, got %s", device.IPAddress)
 	}
-
 }

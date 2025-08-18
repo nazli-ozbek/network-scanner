@@ -12,14 +12,23 @@ import (
 	"time"
 )
 
+type dummyLogger struct{}
+
+func (l *dummyLogger) Info(args ...interface{})  {}
+func (l *dummyLogger) Error(args ...interface{}) {}
+func (l *dummyLogger) Debug(args ...interface{}) {}
+func (l *dummyLogger) Warn(args ...interface{})  {}
+
 func TestScanAndGetDevicesIntegration(t *testing.T) {
 	repo := repository.NewInMemoryRepository()
-	scanner := service.NewScannerService(repo)
-	handler := api.NewHandler(scanner)
+	logger := &dummyLogger{}
+	scanner := service.NewScannerService(repo, logger)
+	scanHandler := api.NewScanHandler(scanner, logger)
+	deviceHandler := api.NewDeviceHandler(scanner, logger)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/scan", handler.StartScan)
-	mux.HandleFunc("/devices", handler.GetDevices)
+	mux.HandleFunc("/scan", scanHandler.StartScan)
+	mux.HandleFunc("/devices", deviceHandler.GetDevices)
 
 	server := httptest.NewServer(mux)
 	defer server.Close()

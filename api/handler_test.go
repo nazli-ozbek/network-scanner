@@ -12,18 +12,26 @@ import (
 	"time"
 )
 
-func TestStartScanAndGetDevices(t *testing.T) {
+type dummyLogger struct{}
 
+func (l *dummyLogger) Info(args ...interface{})  {}
+func (l *dummyLogger) Error(args ...interface{}) {}
+func (l *dummyLogger) Debug(args ...interface{}) {}
+func (l *dummyLogger) Warn(args ...interface{})  {}
+
+func TestStartScanAndGetDevices(t *testing.T) {
 	repo := repository.NewInMemoryRepository()
-	scanner := service.NewScannerService(repo)
-	handler := NewHandler(scanner)
+	log := &dummyLogger{}
+	scanner := service.NewScannerService(repo, log)
+	scanHandler := NewScanHandler(scanner, log)
+	DeviceHandler := NewDeviceHandler(scanner, log)
 
 	body := []byte(`{"ip_range": "127.0.0.1/32"}`)
 	req := httptest.NewRequest(http.MethodPost, "/scan", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	handler.StartScan(w, req)
+	scanHandler.StartScan(w, req)
 
 	resp := w.Result()
 	defer resp.Body.Close()
@@ -36,7 +44,7 @@ func TestStartScanAndGetDevices(t *testing.T) {
 
 	req = httptest.NewRequest(http.MethodGet, "/devices", nil)
 	w = httptest.NewRecorder()
-	handler.GetDevices(w, req)
+	DeviceHandler.GetDevices(w, req)
 
 	resp = w.Result()
 	defer resp.Body.Close()
