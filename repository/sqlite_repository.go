@@ -95,3 +95,5 @@ func (r *SQLiteRepository) FindByIP(ip string) *model.Device {
 	d.LastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
 	return &d
 }
+
+var _ DeviceRepository = (*SQLiteRepository)(nil)

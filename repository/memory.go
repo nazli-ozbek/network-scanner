@@ -46,3 +46,5 @@ func (r *InMemoryRepository) FindByIP(ip string) *model.Device {
 	}
 	return nil
 }
+
+var _ DeviceRepository = (*InMemoryRepository)(nil)
