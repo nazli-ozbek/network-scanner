@@ -18,6 +18,17 @@ definitions:
       mac_address:
         type: string
     type: object
+  model.ScanHistory:
+    properties:
+      device_count:
+        type: integer
+      id:
+        type: integer
+      ip_range:
+        type: string
+      started_at:
+        type: string
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -73,6 +84,46 @@ paths:
           schema:
             type: string
       summary: Initiate a network scan
+  /scan-history:
+    get:
+      description: Returns the list of past scans
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.ScanHistory'
+            type: array
+      summary: Get scan history
+  /scan/repeat:
+    post:
+      description: Starts a new scan using the ip_range of a history record
+      parameters:
+      - description: history id
+        in: query
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: invalid id
+          schema:
+            type: string
+        "404":
+          description: not found
+          schema:
+            type: string
+      summary: Repeat a past scan
 schemes:
 - http
 swagger: "2.0"

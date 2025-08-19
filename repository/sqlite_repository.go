@@ -51,6 +51,22 @@ func (r *SQLiteRepository) Save(device model.Device) {
 
 }
 
+func NewSQLiteRepositoryWithDB(db *sql.DB, logger logger.Logger) (*SQLiteRepository, error) {
+	createTable := `
+	CREATE TABLE IF NOT EXISTS devices (
+		ip_address TEXT PRIMARY KEY,
+		mac_address TEXT,
+		hostname TEXT,
+		is_online BOOLEAN,
+		last_seen DATETIME
+	);`
+	if _, err := db.Exec(createTable); err != nil {
+		logger.Error("failed to create devices table", err)
+		return nil, err
+	}
+	return &SQLiteRepository{db: db, logger: logger}, nil
+}
+
 func (r *SQLiteRepository) GetAll() []model.Device {
 	rows, err := r.db.Query("SELECT ip_address, mac_address, hostname, is_online, last_seen FROM devices")
 	if err != nil {

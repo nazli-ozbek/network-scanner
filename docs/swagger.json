@@ -85,6 +85,67 @@
                     }
                 }
             }
+        },
+        "/scan-history": {
+            "get": {
+                "description": "Returns the list of past scans",
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Get scan history",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.ScanHistory"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/scan/repeat": {
+            "post": {
+                "description": "Starts a new scan using the ip_range of a history record",
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Repeat a past scan",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "history id",
+                        "name": "id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "invalid id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -112,6 +173,23 @@
                     "type": "string"
                 },
                 "mac_address": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.ScanHistory": {
+            "type": "object",
+            "properties": {
+                "device_count": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "ip_range": {
+                    "type": "string"
+                },
+                "started_at": {
                     "type": "string"
                 }
             }

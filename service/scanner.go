@@ -14,14 +14,15 @@ import (
 )
 
 type ScannerService struct {
-	repo   repository.DeviceRepository
-	cancel context.CancelFunc
-	logger logger.Logger
-	wg     sync.WaitGroup
+	repo        repository.DeviceRepository
+	historyRepo repository.ScanHistoryRepository
+	cancel      context.CancelFunc
+	logger      logger.Logger
+	wg          sync.WaitGroup
 }
 
-func NewScannerService(repo repository.DeviceRepository, logger logger.Logger) *ScannerService {
-	return &ScannerService{repo: repo, logger: logger}
+func NewScannerService(repo repository.DeviceRepository, history repository.ScanHistoryRepository, logger logger.Logger) *ScannerService {
+	return &ScannerService{repo: repo, historyRepo: history, logger: logger}
 }
 
 func concurrentPing(ips []string, timeout time.Duration) map[string]bool {
@@ -68,6 +69,8 @@ func (s *ScannerService) StartScan(ipRange string) {
 	s.cancel = cancel
 	s.wg.Add(1)
 
+	startedAt := time.Now()
+
 	go func() {
 		defer s.wg.Done()
 		ips, err := getIPList(ipRange)
@@ -79,6 +82,8 @@ func (s *ScannerService) StartScan(ipRange string) {
 
 		reachability := concurrentPing(ips, 1*time.Second)
 
+		onlineCount := 0
+
 		for _, ip := range ips {
 			select {
 			case <-ctx.Done():
@@ -86,6 +91,9 @@ func (s *ScannerService) StartScan(ipRange string) {
 				return
 			default:
 				reachable := reachability[ip]
+				if reachable {
+					onlineCount++
+				}
 				hostname := ""
 				mac := ""
 				existing := s.repo.FindByIP(ip)
@@ -111,6 +119,18 @@ func (s *ScannerService) StartScan(ipRange string) {
 				s.repo.Save(device)
 			}
 		}
+
+		if s.historyRepo != nil {
+			_, err := s.historyRepo.Save(model.ScanHistory{
+				IPRange:     ipRange,
+				StartedAt:   startedAt,
+				DeviceCount: onlineCount,
+			})
+			if err != nil {
+				s.logger.Error("Failed to persist scan history:", err)
+			}
+		}
+
 		s.logger.Info("Scan completed for range: ", ipRange)
 	}()
 }
