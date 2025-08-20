@@ -60,6 +60,12 @@ func concurrentPing(ips []string, timeout time.Duration) map[string]bool {
 }
 
 func (s *ScannerService) StartScan(ipRange string) {
+	ips, err := getIPList(ipRange)
+	if err != nil {
+		s.logger.Error("Invalid CIDR: ", ipRange)
+		return
+	}
+
 	if s.cancel != nil {
 		s.cancel()
 		s.wg.Wait()
@@ -73,15 +79,10 @@ func (s *ScannerService) StartScan(ipRange string) {
 
 	go func() {
 		defer s.wg.Done()
-		ips, err := getIPList(ipRange)
-		if err != nil {
-			s.logger.Error("Invalid CIDR: ", ipRange)
-			return
-		}
+
 		s.logger.Info("Scan started for range: ", ipRange)
 
 		reachability := concurrentPing(ips, 1*time.Second)
-
 		onlineCount := 0
 
 		for _, ip := range ips {
@@ -97,7 +98,7 @@ func (s *ScannerService) StartScan(ipRange string) {
 				hostname := ""
 				mac := ""
 				existing := s.repo.FindByIP(ip)
-				lastSeen := time.Time{}
+				var lastSeen time.Time
 
 				if reachable {
 					hostname = resolveHostname(ip)
@@ -109,24 +110,22 @@ func (s *ScannerService) StartScan(ipRange string) {
 					s.logger.Debug("Unreachable but exists: ", ip)
 				}
 
-				device := model.Device{
+				s.repo.Save(model.Device{
 					IPAddress:  ip,
 					MACAddress: mac,
 					Hostname:   hostname,
 					IsOnline:   reachable,
 					LastSeen:   lastSeen,
-				}
-				s.repo.Save(device)
+				})
 			}
 		}
 
 		if s.historyRepo != nil {
-			_, err := s.historyRepo.Save(model.ScanHistory{
+			if _, err := s.historyRepo.Save(model.ScanHistory{
 				IPRange:     ipRange,
 				StartedAt:   startedAt,
 				DeviceCount: onlineCount,
-			})
-			if err != nil {
+			}); err != nil {
 				s.logger.Error("Failed to persist scan history:", err)
 			}
 		}
