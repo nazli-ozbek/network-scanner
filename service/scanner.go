@@ -14,22 +14,21 @@ import (
 )
 
 type ScannerService struct {
-	repo        repository.DeviceRepository
-	historyRepo repository.ScanHistoryRepository
-	cancel      context.CancelFunc
-	logger      logger.Logger
-	wg          sync.WaitGroup
-	resolver    ManufacturerResolver
-	pollCancel  context.CancelFunc
-	pollWG      sync.WaitGroup
+	repo       repository.DeviceRepository
+	cancel     context.CancelFunc
+	logger     logger.Logger
+	wg         sync.WaitGroup
+	resolver   ManufacturerResolver
+	pollCancel context.CancelFunc
+	pollWG     sync.WaitGroup
 }
 
-func NewScannerService(repo repository.DeviceRepository, history repository.ScanHistoryRepository, logger logger.Logger) *ScannerService {
-	return &ScannerService{repo: repo, historyRepo: history, logger: logger, resolver: &MockManufacturerResolver{}}
+func NewScannerService(repo repository.DeviceRepository, logger logger.Logger) *ScannerService {
+	return &ScannerService{repo: repo, logger: logger, resolver: &MockManufacturerResolver{}}
 }
 
-func NewScannerServiceWithResolver(repo repository.DeviceRepository, history repository.ScanHistoryRepository, logger logger.Logger, r ManufacturerResolver) *ScannerService {
-	return &ScannerService{repo: repo, historyRepo: history, logger: logger, resolver: r}
+func NewScannerServiceWithResolver(repo repository.DeviceRepository, logger logger.Logger, r ManufacturerResolver) *ScannerService {
+	return &ScannerService{repo: repo, logger: logger, resolver: r}
 }
 
 func concurrentPing(ips []string, timeout time.Duration) map[string]bool {
@@ -70,12 +69,11 @@ func (s *ScannerService) StartScan(ipRange string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.wg.Add(1)
-	startedAt := time.Now()
+
 	go func() {
 		defer s.wg.Done()
 		s.logger.Info("Scan started for range: ", ipRange)
 		reachability := concurrentPing(ips, 1*time.Second)
-		onlineCount := 0
 		for _, ip := range ips {
 			select {
 			case <-ctx.Done():
@@ -83,20 +81,19 @@ func (s *ScannerService) StartScan(ipRange string) {
 				return
 			default:
 				reachable := reachability[ip]
-				if reachable {
-					onlineCount++
-				}
 				existing := s.repo.FindByIP(ip)
 				var hostname, mac string
 				var lastSeen time.Time
 				firstSeen := time.Time{}
 				manufacturer := ""
 				var tags []string
+
 				if existing != nil {
 					firstSeen = existing.FirstSeen
 					manufacturer = existing.Manufacturer
 					tags = existing.Tags
 				}
+
 				status := "offline"
 				if reachable {
 					status = "online"
@@ -130,16 +127,6 @@ func (s *ScannerService) StartScan(ipRange string) {
 					FirstSeen:    firstSeen,
 				}
 				s.repo.Save(device)
-
-			}
-		}
-		if s.historyRepo != nil {
-			if _, err := s.historyRepo.Save(model.ScanHistory{
-				IPRange:     ipRange,
-				StartedAt:   startedAt,
-				DeviceCount: onlineCount,
-			}); err != nil {
-				s.logger.Error("Failed to persist scan history:", err)
 			}
 		}
 		s.logger.Info("Scan completed for range: ", ipRange)
@@ -179,14 +166,15 @@ func (s *ScannerService) StartStatusPolling(interval time.Duration) {
 				reach := concurrentPing(ips, 1*time.Second)
 				now := time.Now()
 				for _, d := range devs {
-					r := reach[d.IPAddress]
-					if r {
+					if reach[d.IPAddress] {
 						if d.FirstSeen.IsZero() {
 							d.FirstSeen = now
 						}
 						d.LastSeen = now
+						d.Status = "online"
+					} else {
+						d.Status = "offline"
 					}
-					d.Status = "online"
 					s.repo.Save(d)
 				}
 			}
@@ -204,6 +192,10 @@ func (s *ScannerService) StopStatusPolling() {
 func (s *ScannerService) UpdateTags(id string, tags []string) error {
 	norm := normalizeTags(tags, 10)
 	return s.repo.UpdateTags(id, norm)
+}
+
+func (s *ScannerService) FindByID(id string) (*model.Device, error) {
+	return s.repo.FindByID(id)
 }
 
 func (s *ScannerService) SearchDevices(q string) ([]model.Device, error) {

@@ -28,17 +28,6 @@ definitions:
           type: string
         type: array
     type: object
-  model.ScanHistory:
-    properties:
-      device_count:
-        type: integer
-      id:
-        type: integer
-      ip_range:
-        type: string
-      started_at:
-        type: string
-    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -68,6 +57,95 @@ paths:
               $ref: '#/definitions/model.Device'
             type: array
       summary: Get all discovered devices
+  /devices/{id}:
+    get:
+      parameters:
+      - description: Device ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.Device'
+        "404":
+          description: Not found
+          schema:
+            type: string
+      summary: Get device by ID
+  /devices/{id}/tags:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Tag to remove
+        in: body
+        name: input
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tag removed
+          schema:
+            type: string
+      summary: Remove a tag from a device
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Device ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Tag to add
+        in: body
+        name: input
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tag added
+          schema:
+            type: string
+      summary: Add a tag to a device
+  /devices/search:
+    get:
+      parameters:
+      - description: Search query
+        in: query
+        name: query
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.Device'
+            type: array
+      summary: Search devices by IP, hostname, or tags
   /scan:
     post:
       consumes:
@@ -94,75 +172,6 @@ paths:
           schema:
             type: string
       summary: Initiate a network scan
-  /scan-history:
-    delete:
-      responses:
-        "200":
-          description: cleared
-          schema:
-            type: string
-      summary: Delete all scan history records
-    get:
-      description: Returns the list of past scans
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/model.ScanHistory'
-            type: array
-      summary: Get scan history
-  /scan-history/{id}:
-    delete:
-      parameters:
-      - description: history id
-        in: path
-        name: id
-        required: true
-        type: integer
-      responses:
-        "200":
-          description: deleted
-          schema:
-            type: string
-        "400":
-          description: invalid id
-          schema:
-            type: string
-        "404":
-          description: not found
-          schema:
-            type: string
-      summary: Delete a scan history record
-  /scan/repeat:
-    post:
-      description: Starts a new scan using the ip_range of a history record
-      parameters:
-      - description: history id
-        in: query
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "202":
-          description: Accepted
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: invalid id
-          schema:
-            type: string
-        "404":
-          description: not found
-          schema:
-            type: string
-      summary: Repeat a past scan
 schemes:
 - http
 swagger: "2.0"

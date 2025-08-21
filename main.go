@@ -19,6 +19,7 @@ import (
 	"network-scanner/repository"
 	"network-scanner/service"
 
+	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/cors"
 	httpSwagger "github.com/swaggo/http-swagger"
@@ -44,37 +45,30 @@ func main() {
 		return
 	}
 
-	historyRepo, err := repository.NewSQLiteScanHistoryRepository(db, appLogger)
-	if err != nil {
-		appLogger.Error("Failed to initialize scan history repo:", err)
-		return
-	}
-
-	scanner := service.NewScannerService(deviceRepo, historyRepo, appLogger)
-
-	scanHandler := api.NewScanHandler(scanner, appLogger, historyRepo)
+	scanner := service.NewScannerService(deviceRepo, appLogger)
+	scanHandler := api.NewScanHandler(scanner, appLogger)
 	deviceHandler := api.NewDeviceHandler(scanner, appLogger)
-	histHandler := api.NewScanHistoryHandler(historyRepo, appLogger)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/scan", scanHandler.StartScan)
-	mux.HandleFunc("/scan/repeat", scanHandler.RepeatScan)
-	mux.HandleFunc("/devices", deviceHandler.GetDevices)
-	mux.HandleFunc("/clear", deviceHandler.ClearDevices)
+	rangeRepo := repository.NewSQLiteIPRangeRepository(db, appLogger)
+	rangeService := service.NewRangeService(rangeRepo)
+	rangeHandler := api.NewRangeHandler(rangeService, appLogger)
 
-	mux.HandleFunc("/scan-history", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			histHandler.GetScanHistory(w, r)
-		case http.MethodDelete:
-			histHandler.ClearScanHistory(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
-	mux.HandleFunc("/scan-history/", histHandler.DeleteScanHistory)
+	r := mux.NewRouter()
 
-	mux.Handle("/swagger/", httpSwagger.WrapHandler)
+	r.HandleFunc("/scan", scanHandler.StartScan).Methods("POST")
+	r.HandleFunc("/devices", deviceHandler.GetDevices).Methods("GET")
+	r.HandleFunc("/clear", deviceHandler.ClearDevices).Methods("DELETE")
+
+	r.HandleFunc("/devices/{id}", deviceHandler.GetDeviceByID).Methods("GET")
+	r.HandleFunc("/devices/{id}/tags", deviceHandler.AddTag).Methods("POST")
+	r.HandleFunc("/devices/{id}/tags", deviceHandler.RemoveTag).Methods("DELETE")
+	r.HandleFunc("/devices/search", deviceHandler.SearchDevices).Methods("GET")
+
+	r.HandleFunc("/ranges", rangeHandler.ListRanges).Methods("GET")
+	r.HandleFunc("/ranges", rangeHandler.AddRange).Methods("POST")
+	r.HandleFunc("/ranges/{id}", rangeHandler.DeleteRange).Methods("DELETE")
+
+	r.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 
 	corsOptions := cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},
@@ -84,5 +78,5 @@ func main() {
 	})
 
 	appLogger.Info("Server listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", corsOptions.Handler(mux)))
+	log.Fatal(http.ListenAndServe(":8080", corsOptions.Handler(r)))
 }
