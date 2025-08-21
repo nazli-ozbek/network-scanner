@@ -1,46 +1,143 @@
 package repository
 
 import (
-	"network-scanner/model"
+	"reflect"
 	"testing"
+	"time"
+
+	"network-scanner/model"
 )
 
-func TestSaveAndGetAll(t *testing.T) {
+func TestSaveAndGetAll_NewModel(t *testing.T) {
 	repo := NewInMemoryRepository()
 
-	device := model.Device{
-		IPAddress:  "192.168.1.10",
-		MACAddress: "AA:BB:CC:DD:EE:FF",
-		Hostname:   "test-device",
-		IsOnline:   true,
+	dev := model.Device{
+		ID:           "192.168.1.10",
+		IPAddress:    "192.168.1.10",
+		MACAddress:   "AA:BB:CC:DD:EE:FF",
+		Hostname:     "test-device",
+		Status:       "online",
+		Manufacturer: "A",
+		Tags:         []string{"lab", "server"},
+		LastSeen:     time.Now().UTC(),
+		FirstSeen:    time.Now().UTC(),
+	}
+	repo.Save(dev)
+
+	all := repo.GetAll()
+	if len(all) != 1 {
+		t.Fatalf("expected 1 device, got %d", len(all))
 	}
 
-	repo.Save(device)
-
-	devices := repo.GetAll()
-	if len(devices) != 1 {
-		t.Fatalf("expected 1 device, got %d", len(devices))
+	got := all[0]
+	if got.IPAddress != dev.IPAddress {
+		t.Errorf("expected IP %s, got %s", dev.IPAddress, got.IPAddress)
 	}
-
-	got := devices[0]
-	if got.IPAddress != device.IPAddress {
-		t.Errorf("expected IP %s, got %s", device.IPAddress, got.IPAddress)
+	if got.Status != "online" {
+		t.Errorf("expected status 'online', got %q", got.Status)
 	}
-	if !got.IsOnline {
-		t.Errorf("expected device to be online")
+	if got.ID != dev.ID {
+		t.Errorf("expected ID %s, got %s", dev.ID, got.ID)
+	}
+	if !reflect.DeepEqual(got.Tags, dev.Tags) {
+		t.Errorf("expected tags %v, got %v", dev.Tags, got.Tags)
 	}
 }
 
 func TestClear(t *testing.T) {
 	repo := NewInMemoryRepository()
 
-	device := model.Device{IPAddress: "192.168.1.5"}
-	repo.Save(device)
+	repo.Save(model.Device{ID: "d1", IPAddress: "192.168.1.5"})
+	repo.Save(model.Device{ID: "d2", IPAddress: "192.168.1.6"})
 
 	repo.Clear()
 
-	devices := repo.GetAll()
-	if len(devices) != 0 {
-		t.Errorf("expected 0 devices after Clear, got %d", len(devices))
+	all := repo.GetAll()
+	if len(all) != 0 {
+		t.Errorf("expected 0 devices after Clear, got %d", len(all))
 	}
+}
+
+func TestFindByIP(t *testing.T) {
+	repo := NewInMemoryRepository()
+
+	d := model.Device{ID: "n1", IPAddress: "192.168.1.20", Hostname: "node-1"}
+	repo.Save(d)
+
+	got := repo.FindByIP("192.168.1.20")
+	if got == nil {
+		t.Fatalf("expected to find device by IP")
+	}
+	if got.ID != "n1" {
+		t.Errorf("expected ID 'n1', got %q", got.ID)
+	}
+	if got.Hostname != "node-1" {
+		t.Errorf("expected hostname 'node-1', got %q", got.Hostname)
+	}
+}
+
+func TestUpdateTags(t *testing.T) {
+	repo := NewInMemoryRepository()
+
+	d := model.Device{ID: "n2", IPAddress: "192.168.1.21"}
+	repo.Save(d)
+
+	err := repo.UpdateTags("n2", []string{"  Web ", "db", "web", "DB  ", " "})
+	if err != nil {
+		t.Fatalf("UpdateTags error: %v", err)
+	}
+
+	got, _ := repo.FindByID("n2")
+	if got == nil {
+		t.Fatalf("expected device after UpdateTags")
+	}
+	if len(got.Tags) != 2 {
+		t.Fatalf("expected 2 normalized tags, got %v", got.Tags)
+	}
+	tagset := map[string]bool{}
+	for _, t2 := range got.Tags {
+		tagset[t2] = true
+	}
+	if !tagset["web"] || !tagset["db"] {
+		t.Errorf("expected tags to contain 'web' and 'db', got %v", got.Tags)
+	}
+}
+
+func TestSearch(t *testing.T) {
+	repo := NewInMemoryRepository()
+
+	repo.Save(model.Device{ID: "a", IPAddress: "192.168.1.30", Hostname: "alpha", Tags: []string{"lab"}})
+	repo.Save(model.Device{ID: "b", IPAddress: "192.168.1.31", Hostname: "beta", Tags: []string{"prod"}})
+	repo.Save(model.Device{ID: "g", IPAddress: "10.0.0.5", Hostname: "gamma", Tags: []string{"Lab", "db"}})
+
+	res, err := repo.Search("192.168.1.3")
+	if err != nil {
+		t.Fatalf("Search error: %v", err)
+	}
+	if len(res) != 2 {
+		t.Errorf("expected 2 results by IP prefix, got %d", len(res))
+	}
+
+	res, _ = repo.Search("beta")
+	if len(res) != 1 || res[0].ID != "b" {
+		t.Errorf("expected 1 result with ID 'b', got %v", ids(res))
+	}
+
+	res, _ = repo.Search("lab")
+	if len(res) != 2 {
+		t.Errorf("expected 2 results with tag 'lab', got %d", len(res))
+	}
+
+	res, _ = repo.Search("")
+	if len(res) != 3 {
+		t.Errorf("expected 3 results for empty query, got %d", len(res))
+	}
+}
+
+func ids(devs []model.Device) []string {
+	ids := make([]string, 0, len(devs))
+	for _, d := range devs {
+		ids = append(ids, d.ID)
+	}
+	return ids
 }

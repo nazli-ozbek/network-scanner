@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"network-scanner/logger"
 	"network-scanner/model"
 	"time"
@@ -20,72 +21,109 @@ func NewSQLiteRepository(dbPath string, logger logger.Logger) (*SQLiteRepository
 		logger.Error("failed to open sqlite db", err)
 		return nil, err
 	}
-
-	createTable := `
-	CREATE TABLE IF NOT EXISTS devices (
-		ip_address TEXT PRIMARY KEY,
-		mac_address TEXT,
-		hostname TEXT,
-		is_online BOOLEAN,
-		last_seen DATETIME
-	);
-	`
-	_, err = db.Exec(createTable)
-	if err != nil {
-		logger.Error("failed to create table", err)
-		return nil, err
-	}
-
-	return &SQLiteRepository{db: db, logger: logger}, nil
-}
-
-func (r *SQLiteRepository) Save(device model.Device) {
-	stmt := `
-    INSERT OR REPLACE INTO devices(ip_address, mac_address, hostname, is_online, last_seen)
-    VALUES (?, ?, ?, ?, ?)
-    `
-	_, err := r.db.Exec(stmt, device.IPAddress, device.MACAddress, device.Hostname, device.IsOnline, device.LastSeen)
-	if err != nil {
-		r.logger.Error("SQLite Save error", err)
-	}
-
-}
-
-func NewSQLiteRepositoryWithDB(db *sql.DB, logger logger.Logger) (*SQLiteRepository, error) {
-	createTable := `
-	CREATE TABLE IF NOT EXISTS devices (
-		ip_address TEXT PRIMARY KEY,
-		mac_address TEXT,
-		hostname TEXT,
-		is_online BOOLEAN,
-		last_seen DATETIME
-	);`
-	if _, err := db.Exec(createTable); err != nil {
+	if err := ensureDevicesTable(db); err != nil {
 		logger.Error("failed to create devices table", err)
 		return nil, err
 	}
+	if err := ensureIPRangesTable(db); err != nil {
+		logger.Error("failed to create ip_ranges table", err)
+		return nil, err
+	}
 	return &SQLiteRepository{db: db, logger: logger}, nil
 }
 
+func NewSQLiteRepositoryWithDB(db *sql.DB, logger logger.Logger) (*SQLiteRepository, error) {
+	if err := ensureDevicesTable(db); err != nil {
+		logger.Error("failed to create devices table", err)
+		return nil, err
+	}
+	if err := ensureIPRangesTable(db); err != nil {
+		logger.Error("failed to create ip_ranges table", err)
+		return nil, err
+	}
+	return &SQLiteRepository{db: db, logger: logger}, nil
+}
+
+func ensureDevicesTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS devices (
+			id TEXT PRIMARY KEY,
+			ip_address TEXT NOT NULL,
+			mac_address TEXT,
+			hostname TEXT,
+			status TEXT,
+			manufacturer TEXT,
+			tags TEXT,
+			last_seen DATETIME,
+			first_seen DATETIME
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip_address);
+		CREATE INDEX IF NOT EXISTS idx_devices_hostname ON devices(hostname);
+	`)
+	return err
+}
+
+func ensureIPRangesTable(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS ip_ranges (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			range TEXT NOT NULL
+		);
+	`)
+	return err
+}
+
+func (r *SQLiteRepository) Save(d model.Device) {
+	tagsJSON, _ := json.Marshal(d.Tags)
+	_, err := r.db.Exec(`
+		INSERT OR REPLACE INTO devices
+			(id, ip_address, mac_address, hostname, status, manufacturer, tags, last_seen, first_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		d.ID,
+		d.IPAddress,
+		d.MACAddress,
+		d.Hostname,
+		d.Status,
+		d.Manufacturer,
+		string(tagsJSON),
+		d.LastSeen.UTC().Format(time.RFC3339),
+		d.FirstSeen.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		r.logger.Error("SQLite Save error", err)
+	}
+}
+
 func (r *SQLiteRepository) GetAll() []model.Device {
-	rows, err := r.db.Query("SELECT ip_address, mac_address, hostname, is_online, last_seen FROM devices")
+	rows, err := r.db.Query(`
+		SELECT id, ip_address, mac_address, hostname, status, manufacturer, tags, last_seen, first_seen
+		FROM devices
+	`)
 	if err != nil {
 		r.logger.Error("SQLite GetAll error", err)
 		return nil
 	}
 	defer rows.Close()
 
-	var devices []model.Device
+	var out []model.Device
 	for rows.Next() {
 		var d model.Device
-		var lastSeenStr string
-		err := rows.Scan(&d.IPAddress, &d.MACAddress, &d.Hostname, &d.IsOnline, &lastSeenStr)
-		if err == nil {
-			d.LastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
-			devices = append(devices, d)
+		var tagsRaw string
+		var lastSeenStr, firstSeenStr string
+		if err := rows.Scan(&d.ID, &d.IPAddress, &d.MACAddress, &d.Hostname, &d.Status, &d.Manufacturer, &tagsRaw, &lastSeenStr, &firstSeenStr); err == nil {
+			_ = json.Unmarshal([]byte(defaultIfEmpty(tagsRaw, "[]")), &d.Tags)
+			if lastSeenStr != "" {
+				d.LastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
+			}
+			if firstSeenStr != "" {
+				d.FirstSeen, _ = time.Parse(time.RFC3339, firstSeenStr)
+			}
+			out = append(out, d)
 		}
 	}
-	return devices
+	return out
 }
 
 func (r *SQLiteRepository) Clear() {
@@ -95,21 +133,96 @@ func (r *SQLiteRepository) Clear() {
 	}
 }
 
-func (r *SQLiteRepository) FindByIP(ip string) *model.Device {
-	row := r.db.QueryRow("SELECT ip_address, mac_address, hostname, is_online, last_seen FROM devices WHERE ip_address = ?", ip)
+func (r *SQLiteRepository) FindByID(id string) (*model.Device, error) {
+	row := r.db.QueryRow(`
+		SELECT id, ip_address, mac_address, hostname, status, manufacturer, tags, last_seen, first_seen
+		FROM devices WHERE id = ?
+	`, id)
 	var d model.Device
-	var lastSeenStr string
-	err := row.Scan(&d.IPAddress, &d.MACAddress, &d.Hostname, &d.IsOnline, &lastSeenStr)
+	var tagsRaw string
+	var lastSeenStr, firstSeenStr string
+	if err := row.Scan(&d.ID, &d.IPAddress, &d.MACAddress, &d.Hostname, &d.Status, &d.Manufacturer, &tagsRaw, &lastSeenStr, &firstSeenStr); err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(defaultIfEmpty(tagsRaw, "[]")), &d.Tags)
+	if lastSeenStr != "" {
+		d.LastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
+	}
+	if firstSeenStr != "" {
+		d.FirstSeen, _ = time.Parse(time.RFC3339, firstSeenStr)
+	}
+	return &d, nil
+}
+
+func (r *SQLiteRepository) UpdateTags(id string, tags []string) error {
+	b, _ := json.Marshal(tags)
+	_, err := r.db.Exec(`UPDATE devices SET tags = ? WHERE id = ?`, string(b), id)
+	return err
+}
+
+func (r *SQLiteRepository) Search(q string) ([]model.Device, error) {
+	like := "%" + q + "%"
+	rows, err := r.db.Query(`
+        SELECT id, ip_address, mac_address, hostname, status, manufacturer, tags, last_seen, first_seen
+        FROM devices
+        WHERE ip_address LIKE ? OR hostname LIKE ? OR tags LIKE ?
+	`, like, like, like)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.Device
+	for rows.Next() {
+		var d model.Device
+		var tagsRaw string
+		var lastSeenStr, firstSeenStr string
+		if err := rows.Scan(&d.ID, &d.IPAddress, &d.MACAddress, &d.Hostname, &d.Status, &d.Manufacturer, &tagsRaw, &lastSeenStr, &firstSeenStr); err == nil {
+			_ = json.Unmarshal([]byte(defaultIfEmpty(tagsRaw, "[]")), &d.Tags)
+			if lastSeenStr != "" {
+				d.LastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
+			}
+			if firstSeenStr != "" {
+				d.FirstSeen, _ = time.Parse(time.RFC3339, firstSeenStr)
+			}
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+func (r *SQLiteRepository) FindByIP(ip string) *model.Device {
+	row := r.db.QueryRow(`
+		SELECT id, ip_address, mac_address, hostname, status, manufacturer, tags, last_seen, first_seen
+		FROM devices WHERE ip_address = ?
+	`, ip)
+	var d model.Device
+	var tagsRaw string
+	var lastSeenStr, firstSeenStr string
+	err := row.Scan(&d.ID, &d.IPAddress, &d.MACAddress, &d.Hostname, &d.Status, &d.Manufacturer, &tagsRaw, &lastSeenStr, &firstSeenStr)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			r.logger.Debug("Device not found in DB:", ip)
 			return nil
 		}
 		r.logger.Error("SQLite FindByIP error:", err)
+		return nil
 	}
-
-	d.LastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
+	_ = json.Unmarshal([]byte(defaultIfEmpty(tagsRaw, "[]")), &d.Tags)
+	if lastSeenStr != "" {
+		d.LastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
+	}
+	if firstSeenStr != "" {
+		d.FirstSeen, _ = time.Parse(time.RFC3339, firstSeenStr)
+	}
 	return &d
+}
+
+func defaultIfEmpty(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 var _ DeviceRepository = (*SQLiteRepository)(nil)

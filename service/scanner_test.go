@@ -1,6 +1,8 @@
 package service
 
 import (
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,24 +21,130 @@ func (l *dummyLogger) Warn(args ...interface{})  {}
 var _ logger.Logger = (*dummyLogger)(nil)
 
 type fakeDeviceRepo struct {
-	data map[string]model.Device
+	mu      sync.RWMutex
+	byID    map[string]model.Device
+	ipIndex map[string]string
 }
 
-func newFakeDeviceRepo() *fakeDeviceRepo      { return &fakeDeviceRepo{data: map[string]model.Device{}} }
-func (r *fakeDeviceRepo) Save(d model.Device) { r.data[d.IPAddress] = d }
+func newFakeDeviceRepo() *fakeDeviceRepo {
+	return &fakeDeviceRepo{
+		byID:    map[string]model.Device{},
+		ipIndex: map[string]string{},
+	}
+}
+
+func (r *fakeDeviceRepo) Save(d model.Device) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	id := d.ID
+	if id == "" {
+		id = d.IPAddress
+		d.ID = id
+	}
+	if old, ok := r.byID[id]; ok && old.IPAddress != d.IPAddress && old.IPAddress != "" {
+		delete(r.ipIndex, old.IPAddress)
+	}
+	r.byID[id] = d
+	if d.IPAddress != "" {
+		r.ipIndex[d.IPAddress] = id
+	}
+}
+
 func (r *fakeDeviceRepo) GetAll() []model.Device {
-	out := make([]model.Device, 0, len(r.data))
-	for _, v := range r.data {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]model.Device, 0, len(r.byID))
+	for _, v := range r.byID {
 		out = append(out, v)
 	}
 	return out
 }
-func (r *fakeDeviceRepo) Clear() { r.data = map[string]model.Device{} }
+
+func (r *fakeDeviceRepo) Clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.byID = map[string]model.Device{}
+	r.ipIndex = map[string]string{}
+}
+
 func (r *fakeDeviceRepo) FindByIP(ip string) *model.Device {
-	if d, ok := r.data[ip]; ok {
-		return &d
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if id, ok := r.ipIndex[ip]; ok {
+		if d, ok2 := r.byID[id]; ok2 {
+			dd := d
+			return &dd
+		}
 	}
 	return nil
+}
+
+func (r *fakeDeviceRepo) FindByID(id string) (*model.Device, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if d, ok := r.byID[id]; ok {
+		dd := d
+		return &dd, nil
+	}
+	return nil, nil
+}
+
+func (r *fakeDeviceRepo) UpdateTags(id string, tags []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.byID[id]
+	if !ok {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	norm := make([]string, 0, len(tags))
+	for _, t := range tags {
+		tt := strings.ToLower(strings.TrimSpace(t))
+		if tt == "" {
+			continue
+		}
+		if _, ex := seen[tt]; !ex {
+			seen[tt] = struct{}{}
+			norm = append(norm, tt)
+		}
+	}
+	d.Tags = norm
+	r.byID[id] = d
+	return nil
+}
+
+func (r *fakeDeviceRepo) Search(q string) ([]model.Device, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		out := make([]model.Device, 0, len(r.byID))
+		for _, d := range r.byID {
+			out = append(out, d)
+		}
+		return out, nil
+	}
+	match := func(d model.Device) bool {
+		if strings.Contains(strings.ToLower(d.IPAddress), q) {
+			return true
+		}
+		if strings.Contains(strings.ToLower(d.Hostname), q) {
+			return true
+		}
+		for _, tag := range d.Tags {
+			if strings.Contains(strings.ToLower(tag), q) {
+				return true
+			}
+		}
+		return false
+	}
+	var out []model.Device
+	for _, d := range r.byID {
+		if match(d) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 
 var _ repository.DeviceRepository = (*fakeDeviceRepo)(nil)
@@ -57,7 +165,6 @@ func TestStartScan_SingleIP(t *testing.T) {
 	log := &dummyLogger{}
 
 	svc := NewScannerService(devRepo, histRepo, log)
-
 	svc.StartScan("127.0.0.1/32")
 
 	deadline := time.Now().Add(2 * time.Second)

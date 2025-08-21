@@ -19,38 +19,36 @@ type ScannerService struct {
 	cancel      context.CancelFunc
 	logger      logger.Logger
 	wg          sync.WaitGroup
+	resolver    ManufacturerResolver
+	pollCancel  context.CancelFunc
+	pollWG      sync.WaitGroup
 }
 
 func NewScannerService(repo repository.DeviceRepository, history repository.ScanHistoryRepository, logger logger.Logger) *ScannerService {
-	return &ScannerService{repo: repo, historyRepo: history, logger: logger}
+	return &ScannerService{repo: repo, historyRepo: history, logger: logger, resolver: &MockManufacturerResolver{}}
+}
+
+func NewScannerServiceWithResolver(repo repository.DeviceRepository, history repository.ScanHistoryRepository, logger logger.Logger, r ManufacturerResolver) *ScannerService {
+	return &ScannerService{repo: repo, historyRepo: history, logger: logger, resolver: r}
 }
 
 func concurrentPing(ips []string, timeout time.Duration) map[string]bool {
 	p := fastping.NewPinger()
 	p.MaxRTT = timeout
-
 	results := make(map[string]bool)
 	var mu sync.Mutex
-
 	for _, ip := range ips {
-		addr, err := net.ResolveIPAddr("ip4:icmp", ip)
-		if err == nil {
+		if addr, err := net.ResolveIPAddr("ip4:icmp", ip); err == nil {
 			p.AddIPAddr(addr)
 		}
 	}
-
 	p.OnRecv = func(addr *net.IPAddr, rtt time.Duration) {
 		mu.Lock()
 		results[addr.String()] = true
 		mu.Unlock()
 	}
-
 	p.OnIdle = func() {}
-
-	if err := p.Run(); err != nil {
-		return results
-	}
-
+	_ = p.Run()
 	for _, ip := range ips {
 		if _, ok := results[ip]; !ok {
 			results[ip] = false
@@ -65,26 +63,19 @@ func (s *ScannerService) StartScan(ipRange string) {
 		s.logger.Error("Invalid CIDR: ", ipRange)
 		return
 	}
-
 	if s.cancel != nil {
 		s.cancel()
 		s.wg.Wait()
 	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.wg.Add(1)
-
 	startedAt := time.Now()
-
 	go func() {
 		defer s.wg.Done()
-
 		s.logger.Info("Scan started for range: ", ipRange)
-
 		reachability := concurrentPing(ips, 1*time.Second)
 		onlineCount := 0
-
 		for _, ip := range ips {
 			select {
 			case <-ctx.Done():
@@ -95,31 +86,53 @@ func (s *ScannerService) StartScan(ipRange string) {
 				if reachable {
 					onlineCount++
 				}
-				hostname := ""
-				mac := ""
 				existing := s.repo.FindByIP(ip)
+				var hostname, mac string
 				var lastSeen time.Time
-
+				firstSeen := time.Time{}
+				manufacturer := ""
+				var tags []string
+				if existing != nil {
+					firstSeen = existing.FirstSeen
+					manufacturer = existing.Manufacturer
+					tags = existing.Tags
+				}
+				status := "offline"
 				if reachable {
+					status = "online"
 					hostname = resolveHostname(ip)
 					mac = resolveMAC(ip)
 					lastSeen = time.Now()
-					s.logger.Debug("Reachable: ", ip, " MAC: ", mac, " Hostname: ", hostname)
+					if firstSeen.IsZero() {
+						firstSeen = lastSeen
+					}
+					if s.resolver != nil && mac != "" {
+						m := s.resolver.Resolve(mac)
+						if m != "" {
+							manufacturer = m
+						}
+					}
 				} else if existing != nil {
 					lastSeen = existing.LastSeen
-					s.logger.Debug("Unreachable but exists: ", ip)
+					hostname = existing.Hostname
+					mac = existing.MACAddress
 				}
 
-				s.repo.Save(model.Device{
-					IPAddress:  ip,
-					MACAddress: mac,
-					Hostname:   hostname,
-					IsOnline:   reachable,
-					LastSeen:   lastSeen,
-				})
+				device := model.Device{
+					ID:           ip,
+					IPAddress:    ip,
+					MACAddress:   mac,
+					Hostname:     hostname,
+					Status:       status,
+					Manufacturer: manufacturer,
+					Tags:         tags,
+					LastSeen:     lastSeen,
+					FirstSeen:    firstSeen,
+				}
+				s.repo.Save(device)
+
 			}
 		}
-
 		if s.historyRepo != nil {
 			if _, err := s.historyRepo.Save(model.ScanHistory{
 				IPRange:     ipRange,
@@ -129,9 +142,72 @@ func (s *ScannerService) StartScan(ipRange string) {
 				s.logger.Error("Failed to persist scan history:", err)
 			}
 		}
-
 		s.logger.Info("Scan completed for range: ", ipRange)
 	}()
+}
+
+func (s *ScannerService) StartStatusPolling(interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	if s.pollCancel != nil {
+		s.pollCancel()
+		s.pollWG.Wait()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.pollCancel = cancel
+	s.pollWG.Add(1)
+	go func() {
+		defer s.pollWG.Done()
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				devs := s.repo.GetAll()
+				if len(devs) == 0 {
+					continue
+				}
+				ips := make([]string, 0, len(devs))
+				for _, d := range devs {
+					if d.IPAddress != "" {
+						ips = append(ips, d.IPAddress)
+					}
+				}
+				reach := concurrentPing(ips, 1*time.Second)
+				now := time.Now()
+				for _, d := range devs {
+					r := reach[d.IPAddress]
+					if r {
+						if d.FirstSeen.IsZero() {
+							d.FirstSeen = now
+						}
+						d.LastSeen = now
+					}
+					d.Status = "online"
+					s.repo.Save(d)
+				}
+			}
+		}
+	}()
+}
+
+func (s *ScannerService) StopStatusPolling() {
+	if s.pollCancel != nil {
+		s.pollCancel()
+		s.pollWG.Wait()
+	}
+}
+
+func (s *ScannerService) UpdateTags(id string, tags []string) error {
+	norm := normalizeTags(tags, 10)
+	return s.repo.UpdateTags(id, norm)
+}
+
+func (s *ScannerService) SearchDevices(q string) ([]model.Device, error) {
+	return s.repo.Search(q)
 }
 
 func (s *ScannerService) GetDevices() []model.Device {
@@ -144,19 +220,12 @@ func ping(ip string) bool {
 	if err != nil {
 		return false
 	}
-
 	p.AddIPAddr(addr)
-
 	reachable := false
-	p.OnRecv = func(addr *net.IPAddr, rtt time.Duration) {
-		reachable = true
-	}
-
-	err = p.Run()
-	if err != nil {
+	p.OnRecv = func(addr *net.IPAddr, rtt time.Duration) { reachable = true }
+	if err = p.Run(); err != nil {
 		return false
 	}
-
 	return reachable
 }
 
@@ -165,15 +234,14 @@ func getIPList(cidr string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var ips []string
+	var out []string
 	for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); inc(ip) {
-		ips = append(ips, ip.String())
+		out = append(out, ip.String())
 	}
-
-	if len(ips) > 2 {
-		ips = ips[1 : len(ips)-1]
+	if len(out) > 2 {
+		out = out[1 : len(out)-1]
 	}
-	return ips, nil
+	return out, nil
 }
 
 func resolveHostname(ip string) string {

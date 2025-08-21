@@ -107,6 +107,51 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "delete": {
+                "summary": "Delete all scan history records",
+                "responses": {
+                    "200": {
+                        "description": "cleared",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/scan-history/{id}": {
+            "delete": {
+                "summary": "Delete a scan history record",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "history id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "deleted",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
             }
         },
         "/scan/repeat": {
@@ -163,20 +208,35 @@ const docTemplate = `{
         "model.Device": {
             "type": "object",
             "properties": {
+                "first_seen": {
+                    "type": "string"
+                },
                 "hostname": {
+                    "type": "string"
+                },
+                "id": {
                     "type": "string"
                 },
                 "ip_address": {
                     "type": "string"
-                },
-                "is_online": {
-                    "type": "boolean"
                 },
                 "last_seen": {
                     "type": "string"
                 },
                 "mac_address": {
                     "type": "string"
+                },
+                "manufacturer": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

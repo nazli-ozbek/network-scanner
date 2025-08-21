@@ -7,16 +7,26 @@ definitions:
     type: object
   model.Device:
     properties:
+      first_seen:
+        type: string
       hostname:
+        type: string
+      id:
         type: string
       ip_address:
         type: string
-      is_online:
-        type: boolean
       last_seen:
         type: string
       mac_address:
         type: string
+      manufacturer:
+        type: string
+      status:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
     type: object
   model.ScanHistory:
     properties:
@@ -85,6 +95,13 @@ paths:
             type: string
       summary: Initiate a network scan
   /scan-history:
+    delete:
+      responses:
+        "200":
+          description: cleared
+          schema:
+            type: string
+      summary: Delete all scan history records
     get:
       description: Returns the list of past scans
       produces:
@@ -97,6 +114,28 @@ paths:
               $ref: '#/definitions/model.ScanHistory'
             type: array
       summary: Get scan history
+  /scan-history/{id}:
+    delete:
+      parameters:
+      - description: history id
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: deleted
+          schema:
+            type: string
+        "400":
+          description: invalid id
+          schema:
+            type: string
+        "404":
+          description: not found
+          schema:
+            type: string
+      summary: Delete a scan history record
   /scan/repeat:
     post:
       description: Starts a new scan using the ip_range of a history record
