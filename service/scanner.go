@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/j-keck/arping"
 	"github.com/tatsushid/go-fastping"
 )
@@ -74,6 +75,7 @@ func (s *ScannerService) StartScan(ipRange string) {
 		defer s.wg.Done()
 		s.logger.Info("Scan started for range: ", ipRange)
 		reachability := concurrentPing(ips, 1*time.Second)
+
 		for _, ip := range ips {
 			select {
 			case <-ctx.Done():
@@ -82,16 +84,24 @@ func (s *ScannerService) StartScan(ipRange string) {
 			default:
 				reachable := reachability[ip]
 				existing := s.repo.FindByIP(ip)
-				var hostname, mac string
-				var lastSeen time.Time
-				firstSeen := time.Time{}
-				manufacturer := ""
-				var tags []string
+
+				var (
+					id           string
+					hostname     string
+					mac          string
+					lastSeen     time.Time
+					firstSeen    time.Time
+					manufacturer string
+					tags         []string
+				)
 
 				if existing != nil {
+					id = existing.ID
 					firstSeen = existing.FirstSeen
 					manufacturer = existing.Manufacturer
 					tags = existing.Tags
+				} else {
+					id = uuid.New().String()
 				}
 
 				status := "offline"
@@ -100,13 +110,14 @@ func (s *ScannerService) StartScan(ipRange string) {
 					hostname = resolveHostname(ip)
 					mac = resolveMAC(ip)
 					lastSeen = time.Now()
+
 					if firstSeen.IsZero() {
 						firstSeen = lastSeen
 					}
+
 					if s.resolver != nil && mac != "" {
-						m := s.resolver.Resolve(mac)
-						if m != "" {
-							manufacturer = m
+						if resolved := s.resolver.Resolve(mac); resolved != "" {
+							manufacturer = resolved
 						}
 					}
 				} else if existing != nil {
@@ -116,7 +127,7 @@ func (s *ScannerService) StartScan(ipRange string) {
 				}
 
 				device := model.Device{
-					ID:           ip,
+					ID:           id,
 					IPAddress:    ip,
 					MACAddress:   mac,
 					Hostname:     hostname,
@@ -126,6 +137,7 @@ func (s *ScannerService) StartScan(ipRange string) {
 					LastSeen:     lastSeen,
 					FirstSeen:    firstSeen,
 				}
+
 				s.repo.Save(device)
 			}
 		}
