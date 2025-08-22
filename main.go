@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"time"
 
 	"network-scanner/api"
 	"network-scanner/config"
@@ -46,6 +47,7 @@ func main() {
 	}
 
 	scanner := service.NewScannerService(deviceRepo, appLogger)
+	scanner.StartStatusPolling(5 * time.Second)
 	scanHandler := api.NewScanHandler(scanner, appLogger)
 	deviceHandler := api.NewDeviceHandler(scanner, appLogger)
 
