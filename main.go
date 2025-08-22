@@ -61,10 +61,10 @@ func main() {
 	r.HandleFunc("/devices", deviceHandler.GetDevices).Methods("GET")
 	r.HandleFunc("/clear", deviceHandler.ClearDevices).Methods("DELETE")
 
+	r.HandleFunc("/devices/search", deviceHandler.SearchDevices).Methods("GET")
 	r.HandleFunc("/devices/{id}", deviceHandler.GetDeviceByID).Methods("GET")
 	r.HandleFunc("/devices/{id}/tags", deviceHandler.AddTag).Methods("POST")
 	r.HandleFunc("/devices/{id}/tags", deviceHandler.RemoveTag).Methods("DELETE")
-	r.HandleFunc("/devices/search", deviceHandler.SearchDevices).Methods("GET")
 
 	r.HandleFunc("/ranges", rangeHandler.ListRanges).Methods("GET")
 	r.HandleFunc("/ranges", rangeHandler.AddRange).Methods("POST")

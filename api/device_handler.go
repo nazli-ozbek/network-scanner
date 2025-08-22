@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"network-scanner/logger"
+	"network-scanner/model"
 	"network-scanner/service"
 	"strings"
 
@@ -142,6 +143,9 @@ func (h *DeviceHandler) SearchDevices(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Search error", http.StatusInternalServerError)
 		return
+	}
+	if result == nil {
+		result = []model.Device{}
 	}
 	json.NewEncoder(w).Encode(result)
 }
