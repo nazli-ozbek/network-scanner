@@ -7,6 +7,7 @@ import (
 	"network-scanner/model"
 	"network-scanner/service"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
@@ -44,15 +45,17 @@ func (h *RangeHandler) ListRanges(w http.ResponseWriter, r *http.Request) {
 // @Router /ranges [post]
 func (h *RangeHandler) AddRange(w http.ResponseWriter, r *http.Request) {
 	var input model.IPRange
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.ID == "" || input.Name == "" || input.Range == "" {
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.Name == "" || input.Range == "" {
 		http.Error(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
+	input.ID = uuid.New().String()
 	if err := h.service.Save(input); err != nil {
 		h.logger.Error("Failed to save IP range:", err)
 		http.Error(w, "Invalid CIDR or server error", http.StatusBadRequest)
 		return
 	}
+
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Created"))
 }
