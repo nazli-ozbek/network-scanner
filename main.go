@@ -46,7 +46,8 @@ func main() {
 		return
 	}
 
-	scanner := service.NewScannerService(deviceRepo, appLogger)
+	resolver := service.NewOfflineManufacturerResolver("data/mac-vendors.csv")
+	scanner := service.NewScannerServiceWithResolver(deviceRepo, appLogger, resolver)
 	scanner.StartStatusPolling(5 * time.Second)
 	scanHandler := api.NewScanHandler(scanner, appLogger)
 	deviceHandler := api.NewDeviceHandler(scanner, appLogger)

@@ -25,7 +25,7 @@ type ScannerService struct {
 }
 
 func NewScannerService(repo repository.DeviceRepository, logger logger.Logger) *ScannerService {
-	return &ScannerService{repo: repo, logger: logger, resolver: &MockManufacturerResolver{}}
+	return &ScannerService{repo: repo, logger: logger, resolver: nil}
 }
 
 func NewScannerServiceWithResolver(repo repository.DeviceRepository, logger logger.Logger, r ManufacturerResolver) *ScannerService {
