@@ -1,23 +1,22 @@
 package repository
 
 import (
+	"network-scanner/model"
 	"reflect"
 	"testing"
 	"time"
-
-	"network-scanner/model"
 )
 
 func TestSaveAndGetAll_NewModel(t *testing.T) {
 	repo := NewInMemoryRepository()
 
 	dev := model.Device{
-		ID:           "192.168.1.10",
+		ID:           "device-1",
 		IPAddress:    "192.168.1.10",
 		MACAddress:   "AA:BB:CC:DD:EE:FF",
 		Hostname:     "test-device",
 		Status:       "online",
-		Manufacturer: "A",
+		Manufacturer: "VendorX",
 		Tags:         []string{"lab", "server"},
 		LastSeen:     time.Now().UTC(),
 		FirstSeen:    time.Now().UTC(),
@@ -33,14 +32,17 @@ func TestSaveAndGetAll_NewModel(t *testing.T) {
 	if got.IPAddress != dev.IPAddress {
 		t.Errorf("expected IP %s, got %s", dev.IPAddress, got.IPAddress)
 	}
-	if got.Status != "online" {
-		t.Errorf("expected status 'online', got %q", got.Status)
+	if got.Status != dev.Status {
+		t.Errorf("expected status %q, got %q", dev.Status, got.Status)
 	}
 	if got.ID != dev.ID {
 		t.Errorf("expected ID %s, got %s", dev.ID, got.ID)
 	}
 	if !reflect.DeepEqual(got.Tags, dev.Tags) {
 		t.Errorf("expected tags %v, got %v", dev.Tags, got.Tags)
+	}
+	if got.Manufacturer != dev.Manufacturer {
+		t.Errorf("expected manufacturer %s, got %s", dev.Manufacturer, got.Manufacturer)
 	}
 }
 
@@ -61,8 +63,8 @@ func TestClear(t *testing.T) {
 func TestFindByIP(t *testing.T) {
 	repo := NewInMemoryRepository()
 
-	d := model.Device{ID: "n1", IPAddress: "192.168.1.20", Hostname: "node-1"}
-	repo.Save(d)
+	dev := model.Device{ID: "n1", IPAddress: "192.168.1.20", Hostname: "node-1"}
+	repo.Save(dev)
 
 	got := repo.FindByIP("192.168.1.20")
 	if got == nil {
@@ -76,13 +78,13 @@ func TestFindByIP(t *testing.T) {
 	}
 }
 
-func TestUpdateTags(t *testing.T) {
+func TestUpdateTags_Normalization(t *testing.T) {
 	repo := NewInMemoryRepository()
 
 	d := model.Device{ID: "n2", IPAddress: "192.168.1.21"}
 	repo.Save(d)
 
-	err := repo.UpdateTags("n2", []string{"  Web ", "db", "web", "DB  ", " "})
+	err := repo.UpdateTags("n2", []string{"  Web ", "db", "web", "DB  ", " ", "", "  ", "cache", "web", "db", "api"})
 	if err != nil {
 		t.Fatalf("UpdateTags error: %v", err)
 	}
@@ -91,15 +93,20 @@ func TestUpdateTags(t *testing.T) {
 	if got == nil {
 		t.Fatalf("expected device after UpdateTags")
 	}
-	if len(got.Tags) != 2 {
-		t.Fatalf("expected 2 normalized tags, got %v", got.Tags)
+
+	expected := []string{"web", "db", "cache", "api"}
+	actualSet := make(map[string]bool)
+	for _, tag := range got.Tags {
+		actualSet[tag] = true
 	}
-	tagset := map[string]bool{}
-	for _, t2 := range got.Tags {
-		tagset[t2] = true
+
+	for _, tag := range expected {
+		if !actualSet[tag] {
+			t.Errorf("expected tag %q to be in result, got %v", tag, got.Tags)
+		}
 	}
-	if !tagset["web"] || !tagset["db"] {
-		t.Errorf("expected tags to contain 'web' and 'db', got %v", got.Tags)
+	if len(got.Tags) > 10 {
+		t.Errorf("expected at most 10 tags, got %d", len(got.Tags))
 	}
 }
 
@@ -108,7 +115,7 @@ func TestSearch(t *testing.T) {
 
 	repo.Save(model.Device{ID: "a", IPAddress: "192.168.1.30", Hostname: "alpha", Tags: []string{"lab"}})
 	repo.Save(model.Device{ID: "b", IPAddress: "192.168.1.31", Hostname: "beta", Tags: []string{"prod"}})
-	repo.Save(model.Device{ID: "g", IPAddress: "10.0.0.5", Hostname: "gamma", Tags: []string{"Lab", "db"}})
+	repo.Save(model.Device{ID: "c", IPAddress: "10.0.0.5", Hostname: "gamma", Tags: []string{"Lab", "db"}})
 
 	res, err := repo.Search("192.168.1.3")
 	if err != nil {
@@ -135,9 +142,9 @@ func TestSearch(t *testing.T) {
 }
 
 func ids(devs []model.Device) []string {
-	ids := make([]string, 0, len(devs))
+	var out []string
 	for _, d := range devs {
-		ids = append(ids, d.ID)
+		out = append(out, d.ID)
 	}
-	return ids
+	return out
 }

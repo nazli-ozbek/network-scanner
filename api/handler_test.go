@@ -1,167 +1,106 @@
 package api
 
-// import (
-// 	"bytes"
-// 	"encoding/json"
-// 	"io"
-// 	"net/http"
-// 	"net/http/httptest"
-// 	"network-scanner/logger"
-// 	"network-scanner/model"
-// 	"network-scanner/repository"
-// 	"network-scanner/service"
-// 	"testing"
-// 	"time"
-// )
+import (
+	"bytes"
+	"database/sql"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"network-scanner/model"
+	"network-scanner/repository"
+	"network-scanner/service"
+	"os"
+	"testing"
+	"time"
 
-// type dummyLogger struct{}
+	_ "github.com/mattn/go-sqlite3"
+)
 
-// func (l *dummyLogger) Info(args ...interface{})  {}
-// func (l *dummyLogger) Error(args ...interface{}) {}
-// func (l *dummyLogger) Debug(args ...interface{}) {}
-// func (l *dummyLogger) Warn(args ...interface{})  {}
+type dummyLogger struct{}
 
-// var _ logger.Logger = (*dummyLogger)(nil)
+func (l *dummyLogger) Info(args ...interface{})  {}
+func (l *dummyLogger) Error(args ...interface{}) {}
+func (l *dummyLogger) Debug(args ...interface{}) {}
+func (l *dummyLogger) Warn(args ...interface{})  {}
 
-// type fakeHistoryRepo struct {
-// 	DeletedIDs []int64
-// 	Cleared    bool
-// }
+func setupTestDB(t *testing.T) (*sql.DB, func()) {
+	dbFile := "test_scan.db"
+	db, err := sql.Open("sqlite3", dbFile)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	cleanup := func() {
+		db.Close()
+		os.Remove(dbFile)
+	}
+	return db, cleanup
+}
 
-// func (f *fakeHistoryRepo) Save(h model.ScanHistory) (int64, error) { return 1, nil }
-// func (f *fakeHistoryRepo) GetAll() ([]model.ScanHistory, error)    { return nil, nil }
+func TestStartScanAndGetDevices_SQLite(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
 
-// func (f *fakeHistoryRepo) GetByID(id int64) (*model.ScanHistory, error) {
-// 	now := time.Now()
-// 	return &model.ScanHistory{
-// 		ID:          id,
-// 		IPRange:     "127.0.0.1/32",
-// 		StartedAt:   now,
-// 		DeviceCount: 1,
-// 	}, nil
-// }
+	repo, err := repository.NewSQLiteRepositoryWithDB(db, &dummyLogger{})
+	if err != nil {
+		t.Fatalf("failed to create repo: %v", err)
+	}
 
-// func (f *fakeHistoryRepo) Delete(id int64) error {
-// 	f.DeletedIDs = append(f.DeletedIDs, id)
-// 	return nil
-// }
+	scanner := service.NewScannerService(repo, &dummyLogger{})
+	scanHandler := NewScanHandler(scanner, &dummyLogger{})
+	deviceHandler := NewDeviceHandler(scanner, &dummyLogger{})
 
-// func (f *fakeHistoryRepo) Clear() error {
-// 	f.Cleared = true
-// 	return nil
-// }
+	body := []byte(`{"ip_range": "127.0.0.1/32"}`)
+	req := httptest.NewRequest(http.MethodPost, "/scan", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	scanHandler.StartScan(w, req)
 
-// var _ repository.ScanHistoryRepository = (*fakeHistoryRepo)(nil)
+	resp := w.Result()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
 
-// func TestStartScanAndGetDevices(t *testing.T) {
-// 	devRepo := repository.NewInMemoryRepository()
-// 	histRepo := &fakeHistoryRepo{}
-// 	log := &dummyLogger{}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		req = httptest.NewRequest(http.MethodGet, "/devices", nil)
+		w = httptest.NewRecorder()
+		deviceHandler.GetDevices(w, req)
+		resp = w.Result()
 
-// 	scanner := service.NewScannerService(devRepo, histRepo, log)
-// 	scanHandler := NewScanHandler(scanner, log, histRepo)
-// 	deviceHandler := NewDeviceHandler(scanner, log)
+		if resp.StatusCode == http.StatusOK {
+			data, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 
-// 	body := []byte(`{"ip_range": "127.0.0.1/32"}`)
-// 	req := httptest.NewRequest(http.MethodPost, "/scan", bytes.NewReader(body))
-// 	req.Header.Set("Content-Type", "application/json")
-// 	w := httptest.NewRecorder()
-// 	scanHandler.StartScan(w, req)
+			var devices []model.Device
+			if err := json.Unmarshal(data, &devices); err != nil {
+				t.Fatalf("failed to parse JSON: %v", err)
+			}
 
-// 	resp := w.Result()
-// 	if resp.StatusCode != http.StatusAccepted {
-// 		_ = resp.Body.Close()
-// 		t.Fatalf("expected 202 Accepted, got %d", resp.StatusCode)
-// 	}
-// 	_ = resp.Body.Close()
+			if len(devices) == 1 && devices[0].IPAddress == "127.0.0.1" {
+				if devices[0].ID == "" {
+					t.Errorf("device ID should not be empty")
+				}
+				if devices[0].Status == "online" {
+					if devices[0].FirstSeen.IsZero() {
+						t.Errorf("FirstSeen should not be zero for online device")
+					}
+					if devices[0].LastSeen.IsZero() {
+						t.Errorf("LastSeen should not be zero for online device")
+					}
+				} else {
+					t.Logf("Device is offline; skipping FirstSeen/LastSeen checks")
+				}
+				break
+			}
+		} else {
+			resp.Body.Close()
+		}
 
-// 	deadline := time.Now().Add(3 * time.Second)
-// 	for {
-// 		req = httptest.NewRequest(http.MethodGet, "/devices", nil)
-// 		w = httptest.NewRecorder()
-// 		deviceHandler.GetDevices(w, req)
-// 		resp = w.Result()
-
-// 		if resp.StatusCode == http.StatusOK {
-// 			data, _ := io.ReadAll(resp.Body)
-// 			_ = resp.Body.Close()
-
-// 			var devices []map[string]interface{}
-// 			_ = json.Unmarshal(data, &devices)
-
-// 			if len(devices) == 1 && devices[0]["ip_address"] == "127.0.0.1" {
-// 				break
-// 			}
-// 		} else {
-// 			_ = resp.Body.Close()
-// 		}
-
-// 		if time.Now().After(deadline) {
-// 			t.Fatal("timeout waiting for device record")
-// 		}
-// 		time.Sleep(50 * time.Millisecond)
-// 	}
-
-// 	req = httptest.NewRequest(http.MethodGet, "/devices", nil)
-// 	w = httptest.NewRecorder()
-// 	deviceHandler.GetDevices(w, req)
-// 	resp = w.Result()
-// 	defer resp.Body.Close()
-
-// 	if resp.StatusCode != http.StatusOK {
-// 		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
-// 	}
-
-// 	var devices []map[string]interface{}
-// 	if err := json.NewDecoder(resp.Body).Decode(&devices); err != nil {
-// 		t.Fatalf("failed to parse response: %v", err)
-// 	}
-
-// 	if len(devices) != 1 {
-// 		t.Fatalf("expected 1 device, got %d", len(devices))
-// 	}
-// 	if devices[0]["ip_address"] != "127.0.0.1" {
-// 		t.Errorf("expected IP 127.0.0.1, got %v", devices[0]["ip_address"])
-// 	}
-// }
-
-// func TestDeleteScanHistory_OK(t *testing.T) {
-
-// 	histRepo := &fakeHistoryRepo{}
-// 	log := &dummyLogger{}
-// 	handler := NewScanHistoryHandler(histRepo, log)
-
-// 	req := httptest.NewRequest(http.MethodDelete, "/scan-history/42", nil)
-// 	w := httptest.NewRecorder()
-// 	handler.DeleteScanHistory(w, req)
-
-// 	resp := w.Result()
-// 	defer resp.Body.Close()
-
-// 	if resp.StatusCode != http.StatusOK {
-// 		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
-// 	}
-// 	if len(histRepo.DeletedIDs) != 1 || histRepo.DeletedIDs[0] != 42 {
-// 		t.Fatalf("expected DeletedIDs=[42], got %v", histRepo.DeletedIDs)
-// 	}
-// }
-
-// func TestClearScanHistory_OK(t *testing.T) {
-// 	histRepo := &fakeHistoryRepo{}
-// 	log := &dummyLogger{}
-// 	handler := NewScanHistoryHandler(histRepo, log)
-
-// 	req := httptest.NewRequest(http.MethodDelete, "/scan-history", nil)
-// 	w := httptest.NewRecorder()
-// 	handler.ClearScanHistory(w, req)
-
-// 	resp := w.Result()
-// 	defer resp.Body.Close()
-
-// 	if resp.StatusCode != http.StatusOK {
-// 		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
-// 	}
-// 	if !histRepo.Cleared {
-// 		t.Fatalf("expected Cleared=true, got false")
-// 	}
-// }
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for device record")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
