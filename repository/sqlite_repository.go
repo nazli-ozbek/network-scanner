@@ -163,15 +163,15 @@ func (r *SQLiteRepository) UpdateTags(id string, tags []string) error {
 func (r *SQLiteRepository) Search(q string) ([]model.Device, error) {
 	like := "%" + q + "%"
 	rows, err := r.db.Query(`
-        SELECT id, ip_address, mac_address, hostname, status, manufacturer, tags, last_seen, first_seen
-        FROM devices
-        WHERE ip_address LIKE ? 
-		OR mac_address LIKE ? 
-		OR hostname LIKE ? 
-		OR manufacturer LIKE ? 
-		OR tags LIKE ?s
+    SELECT id, ip_address, mac_address, hostname, status, manufacturer, tags, last_seen, first_seen
+    FROM devices
+    WHERE ip_address LIKE ? 
+    OR mac_address LIKE ? 
+    OR hostname LIKE ? 
+    OR manufacturer LIKE ?
+    OR tags LIKE ?
+`, like, like, like, like, like)
 
-	`, like, like, like)
 	if err != nil {
 		return nil, err
 	}
