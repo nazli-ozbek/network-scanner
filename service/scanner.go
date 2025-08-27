@@ -194,13 +194,6 @@ func (s *ScannerService) StartStatusPolling(interval time.Duration) {
 	}()
 }
 
-func (s *ScannerService) StopStatusPolling() {
-	if s.pollCancel != nil {
-		s.pollCancel()
-		s.pollWG.Wait()
-	}
-}
-
 func (s *ScannerService) UpdateTags(id string, tags []string) error {
 	norm := normalizeTags(tags, 10)
 	return s.repo.UpdateTags(id, norm)

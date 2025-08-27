@@ -1,10 +1,9 @@
 package repository
 
 import (
+	"network-scanner/model"
 	"strings"
 	"sync"
-
-	"network-scanner/model"
 )
 
 type InMemoryRepository struct {

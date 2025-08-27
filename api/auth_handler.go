@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"network-scanner/config"
 	"network-scanner/logger"
 	"network-scanner/model"
 	"network-scanner/repository"
@@ -75,7 +76,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"exp":      time.Now().Add(time.Hour * 24).Unix(),
 	})
 
-	tokenString, err := token.SignedString([]byte("your-secret-key"))
+	secret := config.K.String("auth.jwt_secret")
+	tokenString, err := token.SignedString([]byte(secret))
+
 	if err != nil {
 		http.Error(w, "Token error", http.StatusInternalServerError)
 		return

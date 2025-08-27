@@ -29,6 +29,7 @@ import (
 
 func main() {
 	config.LoadConfig()
+	jwtSecret := config.K.String("auth.jwt_secret")
 
 	appLogger := logger.NewLogger()
 	appLogger.Info("Logger initialized")
@@ -66,7 +67,7 @@ func main() {
 
 	protected := r.PathPrefix("/").Subrouter()
 	protected.Use(func(h http.Handler) http.Handler {
-		return middleware.AuthMiddleware("your-secret-key", h)
+		return middleware.AuthMiddleware(jwtSecret, h)
 	})
 
 	protected.HandleFunc("/scan", scanHandler.StartScan).Methods("POST")
