@@ -17,6 +17,7 @@ import (
 	"network-scanner/config"
 	_ "network-scanner/docs"
 	"network-scanner/logger"
+	"network-scanner/middleware"
 	"network-scanner/repository"
 	"network-scanner/service"
 
@@ -46,6 +47,8 @@ func main() {
 		return
 	}
 
+	userRepo := repository.NewSQLiteUserRepository(db, appLogger)
+	authHandler := api.NewAuthHandler(userRepo, appLogger)
 	resolver := service.NewOfflineManufacturerResolver("data/mac-vendors.csv")
 	scanner := service.NewScannerServiceWithResolver(deviceRepo, appLogger, resolver)
 	scanner.StartStatusPolling(5 * time.Second)
@@ -58,25 +61,31 @@ func main() {
 
 	r := mux.NewRouter()
 
-	r.HandleFunc("/scan", scanHandler.StartScan).Methods("POST")
-	r.HandleFunc("/devices", deviceHandler.GetDevices).Methods("GET")
-	r.HandleFunc("/clear", deviceHandler.ClearDevices).Methods("DELETE")
+	r.HandleFunc("/register", authHandler.Register).Methods("POST")
+	r.HandleFunc("/login", authHandler.Login).Methods("POST")
 
-	r.HandleFunc("/devices/search", deviceHandler.SearchDevices).Methods("GET")
-	r.HandleFunc("/devices/{id}", deviceHandler.GetDeviceByID).Methods("GET")
-	r.HandleFunc("/devices/{id}/tags", deviceHandler.AddTag).Methods("POST")
-	r.HandleFunc("/devices/{id}/tags", deviceHandler.RemoveTag).Methods("DELETE")
+	protected := r.PathPrefix("/").Subrouter()
+	protected.Use(func(h http.Handler) http.Handler {
+		return middleware.AuthMiddleware("your-secret-key", h)
+	})
 
-	r.HandleFunc("/ranges", rangeHandler.ListRanges).Methods("GET")
-	r.HandleFunc("/ranges", rangeHandler.AddRange).Methods("POST")
-	r.HandleFunc("/ranges/{id}", rangeHandler.DeleteRange).Methods("DELETE")
+	protected.HandleFunc("/scan", scanHandler.StartScan).Methods("POST")
+	protected.HandleFunc("/devices", deviceHandler.GetDevices).Methods("GET")
+	protected.HandleFunc("/clear", deviceHandler.ClearDevices).Methods("DELETE")
+	protected.HandleFunc("/devices/search", deviceHandler.SearchDevices).Methods("GET")
+	protected.HandleFunc("/devices/{id}", deviceHandler.GetDeviceByID).Methods("GET")
+	protected.HandleFunc("/devices/{id}/tags", deviceHandler.AddTag).Methods("POST")
+	protected.HandleFunc("/devices/{id}/tags", deviceHandler.RemoveTag).Methods("DELETE")
+	protected.HandleFunc("/ranges", rangeHandler.ListRanges).Methods("GET")
+	protected.HandleFunc("/ranges", rangeHandler.AddRange).Methods("POST")
+	protected.HandleFunc("/ranges/{id}", rangeHandler.DeleteRange).Methods("DELETE")
 
 	r.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 
 	corsOptions := cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
 	})
 
