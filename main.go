@@ -84,7 +84,7 @@ func main() {
 	r.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 
 	corsOptions := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   []string{"http://localhost:3000"},
 		AllowedMethods:   []string{"GET", "POST", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,

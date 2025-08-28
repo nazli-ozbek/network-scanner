@@ -76,6 +76,13 @@ func ensureIPRangesTable(db *sql.DB) error {
 
 func (r *SQLiteRepository) Save(d model.Device) {
 	tagsJSON, _ := json.Marshal(d.Tags)
+	existing := r.FindByIP(d.IPAddress)
+	if existing != nil {
+		if len(d.Tags) == 0 {
+			d.Tags = existing.Tags
+		}
+		d.FirstSeen = existing.FirstSeen
+	}
 	_, err := r.db.Exec(`
 		INSERT OR REPLACE INTO devices
 			(id, ip_address, mac_address, hostname, status, manufacturer, tags, last_seen, first_seen)

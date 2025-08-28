@@ -1,6 +1,6 @@
 {
   "database": {
-    "path": "data/devices.db"
+    "path": "/app/data/devices.db"
   },
   "auth": {
     "jwt_secret": "secure-secret-key"
