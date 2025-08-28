@@ -44,6 +44,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.userRepo.Create(user); err != nil {
+		if err.Error() == "user already exists" {
+			http.Error(w, "User already exists", http.StatusConflict)
+			return
+		}
 		http.Error(w, "User creation failed", http.StatusInternalServerError)
 		return
 	}

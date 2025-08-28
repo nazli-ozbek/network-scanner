@@ -6,6 +6,8 @@ import (
 	"network-scanner/logger"
 	"network-scanner/model"
 
+	"strings"
+
 	"github.com/google/uuid"
 )
 
@@ -41,7 +43,13 @@ func (r *SQLiteUserRepository) Create(user *model.User) error {
 	user.ID = uuid.New().String()
 	_, err := r.db.Exec("INSERT INTO users (id, username, password) VALUES (?, ?, ?)",
 		user.ID, user.Username, user.Password)
-	return err
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: users.username") {
+			return errors.New("user already exists")
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *SQLiteUserRepository) FindByUsername(username string) (*model.User, error) {
